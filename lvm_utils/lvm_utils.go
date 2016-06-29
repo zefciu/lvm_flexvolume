@@ -39,10 +39,32 @@ func GetLV(vg C.vg_t, lvName string) (*Lv, error) {
     defer C.free(unsafe.Pointer(goLvName))
     lv := C.lvm_lv_from_name(vg, goLvName);
     if (lv == nil) {
-	    return nil, errors.New(C.GoString(C.lvm_errmsg(libHandle)))
-    } else {
-        return &Lv{lv}, nil
+        message := C.GoString(C.lvm_errmsg(libHandle))
+        if message == "" {
+            return nil, nil // LV doesn't exist
+        } else {
+            return nil, errors.New(message) // Some error
+        }
     }
+    return &Lv{lv}, nil
+}
+
+func CreateLV(vg C.vg_t, pool string, volId string, size uint64) (*Lv, error) {
+    goPool :=C.CString(pool)
+    defer C.free(unsafe.Pointer(goPool))
+    goVolId :=C.CString(volId)
+    defer C.free(unsafe.Pointer(goVolId))
+    params := C.lvm_lv_params_create_thin(
+        vg, goPool, goVolId, C.uint64_t(size),
+    )
+    if params == nil {
+        return nil, errors.New(C.GoString(C.lvm_errmsg(libHandle)))
+    }
+    lv := C.lvm_lv_create(params)
+    if lv == nil {
+        return nil, errors.New(C.GoString(C.lvm_errmsg(libHandle)))
+    }
+    return &Lv{lv}, nil
 }
 
 func (lv Lv) Name() (string) {
@@ -51,13 +73,20 @@ func (lv Lv) Name() (string) {
 
 
 func EnsureDevice(
-    vgName string, _ string, volId string, _ uint64,
+    vgName string, pool string, volId string, size uint64,
 ) (*Lv, error) {
     vg, err := GetVG(vgName)
     if err != nil {
         return nil, err
     }
     lv, err := GetLV(vg, volId)
+    if err != nil {
+        return nil, err
+    }
+    if lv != nil {
+        return lv, nil
+    }
+    lv, err = CreateLV(vg, pool, volId, size)
     if err != nil {
         return nil, err
     }
