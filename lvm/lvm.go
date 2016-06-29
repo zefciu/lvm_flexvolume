@@ -58,7 +58,7 @@ func PrintResult(status string, message string, device string) {
 }
 
 func Init() {
-    PrintResult("success", "Initialized", "")
+    PrintResult("Success", "Initialized", "")
 }
 
 func Attach(jsonArgStr string) {
@@ -66,7 +66,7 @@ func Attach(jsonArgStr string) {
     _ = json.Unmarshal([]byte(jsonArgStr), &jsonArgs)
     size, err := jsonArgs.Size()
     if err != nil {
-        PrintResult("failure", err.Error(), "")
+        PrintResult("Failure", err.Error(), "")
     }
     device, err := lvm_utils.EnsureDevice(
 		jsonArgs.VolumeGroup,
@@ -75,9 +75,10 @@ func Attach(jsonArgStr string) {
 		size,
 	)
     if err != nil {
-        PrintResult("failure", err.Error(), "")
+        PrintResult("Failure", err.Error(), "")
+        return
     }
-    PrintResult("success", "Volume attached", device.Name())
+    PrintResult("Success", "Volume attached", device.Name())
 }
 
 func main() {
@@ -93,6 +94,6 @@ func main() {
     // case "unmount":
     //     Unmount(os.Args[2])
     default:
-        fmt.Printf("Invalid command")
+        PrintResult("Failure", "Invalid command", "")
     }
 }
