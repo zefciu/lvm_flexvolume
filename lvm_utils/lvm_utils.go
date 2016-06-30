@@ -3,9 +3,13 @@ package lvm_utils
 // #cgo LDFLAGS: -llvm2app
 // #include <lvm2app.h>
 // #include <stdlib.h>
+// const char* getString(lvm_property_value_t pv) {
+//     return pv.value.string;
+// }
 import "C"
 
 import "errors"
+import "os/exec"
 import "unsafe"
 
 var libHandle C.lvm_t
@@ -49,7 +53,9 @@ func GetLV(vg C.vg_t, lvName string) (*Lv, error) {
     return &Lv{lv}, nil
 }
 
-func CreateLV(vg C.vg_t, pool string, volId string, size uint64) (*Lv, error) {
+func CreateLV(
+    vg C.vg_t, pool string, volId string, size uint64, fs string,
+) (*Lv, error) {
     goPool :=C.CString(pool)
     defer C.free(unsafe.Pointer(goPool))
     goVolId :=C.CString(volId)
@@ -60,20 +66,34 @@ func CreateLV(vg C.vg_t, pool string, volId string, size uint64) (*Lv, error) {
     if params == nil {
         return nil, errors.New(C.GoString(C.lvm_errmsg(libHandle)))
     }
-    lv := C.lvm_lv_create(params)
-    if lv == nil {
+    clv := C.lvm_lv_create(params)
+    if clv == nil {
         return nil, errors.New(C.GoString(C.lvm_errmsg(libHandle)))
     }
-    return &Lv{lv}, nil
+    lv := Lv{clv}
+    path := lv.Path()
+    cmd := exec.Command("mkfs", "-t", fs, path)
+    err := cmd.Run()
+    if err != nil {
+        return nil, err
+    }
+    return &lv, nil
 }
 
 func (lv Lv) Name() (string) {
     return C.GoString(C.lvm_lv_get_name(lv.lv))
 }
 
+func (lv Lv) Path() (string) {
+    pathString := C.CString("lv_path");
+    defer C.free(unsafe.Pointer(pathString))
+    property := C.lvm_lv_get_property(lv.lv, pathString)
+    return C.GoString(C.getString(property))
+}
+
 
 func EnsureDevice(
-    vgName string, pool string, volId string, size uint64,
+    vgName string, pool string, volId string, size uint64, fs string,
 ) (*Lv, error) {
     vg, err := GetVG(vgName)
     if err != nil {
@@ -86,7 +106,7 @@ func EnsureDevice(
     if lv != nil {
         return lv, nil
     }
-    lv, err = CreateLV(vg, pool, volId, size)
+    lv, err = CreateLV(vg, pool, volId, size, fs)
     if err != nil {
         return nil, err
     }

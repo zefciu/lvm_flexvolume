@@ -73,12 +73,23 @@ func Attach(jsonArgStr string) {
 		jsonArgs.Pool,
 		jsonArgs.VolumeID,
 		size,
+        jsonArgs.FsType,
 	)
     if err != nil {
         PrintResult("Failure", err.Error(), "")
         return
     }
     PrintResult("Success", "Volume attached", device.Name())
+}
+
+func Mount(target string, device string, jsonArgStr string) {
+    var jsonArgs AttachOpts
+    _ = json.Unmarshal([]byte(jsonArgStr), &jsonArgs)
+    f, _ := os.Create("/home/zefciu/tmp/mount.log")
+    defer f.Close()
+    f.WriteString(target + "\n")
+    f.WriteString(device + "\n")
+    f.WriteString(jsonArgStr + "\n")
 }
 
 func main() {
@@ -89,8 +100,8 @@ func main() {
         Attach(os.Args[2])
     // case "detach":
     //     Nop()
-    // case "mount":
-    //     Mount(os.Args[2], os.Args[3], os.Args[4])
+    case "mount":
+        Mount(os.Args[2], os.Args[3], os.Args[4])
     // case "unmount":
     //     Unmount(os.Args[2])
     default:
