@@ -25,6 +25,7 @@ func init() {
     libHandle = C.lvm_init(path)
 }
 
+
 func GetVG(vgName string) (C.vg_t, error) {
     goVgName := C.CString(vgName)
     defer C.free(unsafe.Pointer(goVgName))
@@ -37,6 +38,7 @@ func GetVG(vgName string) (C.vg_t, error) {
         return vg, nil
     }
 }
+
 
 func GetLV(vg C.vg_t, lvName string) (*Lv, error) {
     goLvName := C.CString(lvName)
@@ -52,6 +54,7 @@ func GetLV(vg C.vg_t, lvName string) (*Lv, error) {
     }
     return &Lv{lv}, nil
 }
+
 
 func CreateLV(
     vg C.vg_t, pool string, volId string, size uint64, fs string,
@@ -80,9 +83,11 @@ func CreateLV(
     return &lv, nil
 }
 
+
 func (lv Lv) Name() (string) {
     return C.GoString(C.lvm_lv_get_name(lv.lv))
 }
+
 
 func (lv Lv) Path() (string) {
     pathString := C.CString("lv_path");
@@ -94,21 +99,21 @@ func (lv Lv) Path() (string) {
 
 func EnsureDevice(
     vgName string, pool string, volId string, size uint64, fs string,
-) (*Lv, error) {
+) (*Lv, error, bool) {
     vg, err := GetVG(vgName)
     if err != nil {
-        return nil, err
+        return nil, err, false
     }
     lv, err := GetLV(vg, volId)
     if err != nil {
-        return nil, err
+        return nil, err, false
     }
     if lv != nil {
-        return lv, nil
+        return lv, nil, false
     }
     lv, err = CreateLV(vg, pool, volId, size, fs)
     if err != nil {
-        return nil, err
+        return nil, err, false
     }
-    return lv, nil
+    return lv, nil, true
 }

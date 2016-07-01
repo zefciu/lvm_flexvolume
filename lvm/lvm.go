@@ -7,6 +7,7 @@ import "os"
 import "regexp"
 import "strconv"
 import "strings"
+import "syscall"
 
 import "github.com/lvm_flexvolume/lvm_utils"
 
@@ -58,7 +59,7 @@ func PrintResult(status string, message string, device string) {
 }
 
 func Init() {
-    PrintResult("Success", "Initialized", "")
+    PrintResult("Success", "No initialisation logic needed", "")
 }
 
 func Attach(jsonArgStr string) {
@@ -68,7 +69,7 @@ func Attach(jsonArgStr string) {
     if err != nil {
         PrintResult("Failure", err.Error(), "")
     }
-    device, err := lvm_utils.EnsureDevice(
+    device, err, created := lvm_utils.EnsureDevice(
 		jsonArgs.VolumeGroup,
 		jsonArgs.Pool,
 		jsonArgs.VolumeID,
@@ -79,17 +80,40 @@ func Attach(jsonArgStr string) {
         PrintResult("Failure", err.Error(), "")
         return
     }
-    PrintResult("Success", "Volume attached", device.Name())
+    message := "Volume already exists"
+    if created {
+        message = "Volume created"
+    }
+    PrintResult("Success", message, device.Path())
 }
 
 func Mount(target string, device string, jsonArgStr string) {
     var jsonArgs AttachOpts
     _ = json.Unmarshal([]byte(jsonArgStr), &jsonArgs)
-    f, _ := os.Create("/home/zefciu/tmp/mount.log")
-    defer f.Close()
-    f.WriteString(target + "\n")
-    f.WriteString(device + "\n")
-    f.WriteString(jsonArgStr + "\n")
+    err := os.MkdirAll(target, 0700)
+    if err != nil {
+        PrintResult("Failure", err.Error(), "")
+        return
+    }
+    err = syscall.Mount(device, target, jsonArgs.FsType, 0, "")
+    if err != nil {
+        PrintResult("Failure", err.Error(), "")
+        return
+    }
+    PrintResult("Success", "Volume mounted", "")
+}
+
+func Detach() {
+    PrintResult("Success", "No detachment logic needed", "")
+}
+
+func Unmount(path string) {
+    err := syscall.Unmount(path, 0)
+    if err != nil {
+        PrintResult("Failure", err.Error(), "")
+    }
+    PrintResult("Success", "Volume unmounted", "")
+
 }
 
 func main() {
@@ -98,12 +122,12 @@ func main() {
         Init()
     case "attach":
         Attach(os.Args[2])
-    // case "detach":
-    //     Nop()
+    case "detach":
+        Detach()
     case "mount":
         Mount(os.Args[2], os.Args[3], os.Args[4])
-    // case "unmount":
-    //     Unmount(os.Args[2])
+    case "unmount":
+        Unmount(os.Args[2])
     default:
         PrintResult("Failure", "Invalid command", "")
     }
