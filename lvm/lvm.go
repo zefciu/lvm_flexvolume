@@ -84,7 +84,7 @@ func Attach(jsonArgStr string) {
 	if created {
 		message = "Volume created"
 	}
-	PrintResult("Success", message, device.Path())
+	PrintResult("Success", message, device.Path)
 }
 
 func Mount(target string, device string, jsonArgStr string) {
@@ -117,6 +117,7 @@ func Unmount(path string) {
 }
 
 func main() {
+	defer lvm_utils.Cleanup()
 	switch os.Args[1] {
 	case "init":
 		Init()

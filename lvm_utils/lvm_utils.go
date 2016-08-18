@@ -1,102 +1,102 @@
 package lvm_utils
 
-// #cgo LDFLAGS: -llvm2app
-// #include <lvm2app.h>
-// #include <stdlib.h>
-// const char* getString(lvm_property_value_t pv) {
-//     return pv.value.string;
-// }
-import "C"
-
+import "bytes"
 import "errors"
+import "fmt"
+import "os"
 import "os/exec"
-import "unsafe"
+import "strings"
 
-var libHandle C.lvm_t
+type LogFileWrap struct {
+	LogFile *os.File
+}
+
+var LogFile = LogFileWrap{}
 
 type Lv struct {
-	lv C.lv_t
+	Vg   string
+	Name string
+	Path string
+}
+
+func CallCmd(name string, args ...string) (string, error) {
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	Log(fmt.Sprintf("%s %s", name, strings.Join(args, " ")))
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	Log(stderr.String())
+	Log(stdout.String())
+	if err != nil {
+		return "", errors.New(stderr.String())
+	}
+	return stdout.String(), nil
+
 }
 
 func init() {
-	path := C.CString("etc/lvm")
-	defer C.free(unsafe.Pointer(path))
-	libHandle = C.lvm_init(path)
+	logFile, err := os.Create("/tmp/lvmdriver.log")
+	if err != nil {
+		panic(fmt.Sprintf("Cannot create logfile: %s", err.Error()))
+	}
+	LogFile.LogFile = logFile
 }
 
-func GetVG(vgName string) (C.vg_t, error) {
-	goVgName := C.CString(vgName)
-	defer C.free(unsafe.Pointer(goVgName))
-	w := C.CString("w")
-	defer C.free(unsafe.Pointer(w))
-	vg := C.lvm_vg_open(libHandle, goVgName, w, 0)
-	if vg == nil {
-		return nil, errors.New(C.GoString(C.lvm_errmsg(libHandle)))
-	} else {
-		return vg, nil
-	}
+func Cleanup() {
+	LogFile.LogFile.Close()
 }
 
-func GetLV(vg C.vg_t, lvName string) (*Lv, error) {
-	goLvName := C.CString(lvName)
-	defer C.free(unsafe.Pointer(goLvName))
-	lv := C.lvm_lv_from_name(vg, goLvName)
-	if lv == nil {
-		message := C.GoString(C.lvm_errmsg(libHandle))
-		if message == "" {
-			return nil, nil // LV doesn't exist
-		} else {
-			return nil, errors.New(message) // Some error
-		}
+func Log(data string) {
+	_, err := LogFile.LogFile.Write([]byte(data + "\n"))
+	if err != nil {
+		panic(fmt.Sprintf("Cannot log data: %s", err.Error()))
 	}
-	return &Lv{lv}, nil
+
+}
+
+func GetLV(vgName, lvName string) (*Lv, error) {
+	data, err := CallCmd(
+		"lvs",
+		vgName+"/"+lvName,
+		"--separator", ";",
+		"--no-heading",
+		"-o", "lv_name,lv_path",
+	)
+	if err != nil || data == "" {
+		return nil, nil
+	}
+	dataParsed := strings.SplitN(strings.Trim(data, " \n\t"), ";", 2)
+	return &Lv{Vg: vgName, Name: dataParsed[0], Path: dataParsed[1]}, nil
 }
 
 func CreateLV(
-	vg C.vg_t, pool string, volId string, size uint64, fs string,
+	vg string, pool string, volId string, size uint64, fs string,
 ) (*Lv, error) {
-	goPool := C.CString(pool)
-	defer C.free(unsafe.Pointer(goPool))
-	goVolId := C.CString(volId)
-	defer C.free(unsafe.Pointer(goVolId))
-	params := C.lvm_lv_params_create_thin(
-		vg, goPool, goVolId, C.uint64_t(size),
+	_, err := CallCmd(
+		"lvcreate",
+		fmt.Sprintf("-V%dB", size),
+		"-T", fmt.Sprintf("%s/%s", vg, pool),
+		"-n", volId,
 	)
-	if params == nil {
-		return nil, errors.New(C.GoString(C.lvm_errmsg(libHandle)))
-	}
-	clv := C.lvm_lv_create(params)
-	if clv == nil {
-		return nil, errors.New(C.GoString(C.lvm_errmsg(libHandle)))
-	}
-	lv := Lv{clv}
-	path := lv.Path()
-	cmd := exec.Command("mkfs", "-t", fs, path)
-	err := cmd.Run()
 	if err != nil {
 		return nil, err
 	}
-	return &lv, nil
-}
-
-func (lv Lv) Name() string {
-	return C.GoString(C.lvm_lv_get_name(lv.lv))
-}
-
-func (lv Lv) Path() string {
-	pathString := C.CString("lv_path")
-	defer C.free(unsafe.Pointer(pathString))
-	property := C.lvm_lv_get_property(lv.lv, pathString)
-	return C.GoString(C.getString(property))
+	lv, err := GetLV(vg, volId)
+	if err != nil {
+		return nil, err
+	}
+	_, err = CallCmd("mkfs", "-t", fs, lv.Path)
+	if err != nil {
+		return nil, err
+	}
+	return lv, nil
 }
 
 func EnsureDevice(
-	vgName string, pool string, volId string, size uint64, fs string,
+	vg string, pool string, volId string, size uint64, fs string,
 ) (*Lv, error, bool) {
-	vg, err := GetVG(vgName)
-	if err != nil {
-		return nil, err, false
-	}
 	lv, err := GetLV(vg, volId)
 	if err != nil {
 		return nil, err, false
