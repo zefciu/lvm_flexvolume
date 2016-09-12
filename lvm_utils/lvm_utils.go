@@ -6,6 +6,8 @@ import "fmt"
 import "os"
 import "os/exec"
 import "strings"
+import "syscall"
+import "time"
 
 type LogFileWrap struct {
 	LogFile *os.File
@@ -22,15 +24,28 @@ type Lv struct {
 func CallCmd(name string, args ...string) (string, error) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
+	var err error
 	Log(fmt.Sprintf("%s %s", name, strings.Join(args, " ")))
 	cmd := exec.Command(name, args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err := cmd.Run()
+	done := make(chan error, 1)
+	go func() {
+		cmd.Run()
+		done <- cmd.Wait()
+	}()
+	select {
+	case <-time.After(10 * time.Second):
+		err = cmd.Process.Signal(syscall.SIGINT)
+		if err == nil {
+			err = errors.New("Killed the command")
+		}
+	case err = <-done:
+	}
 	Log(stderr.String())
 	Log(stdout.String())
 	if err != nil {
-		return "", errors.New(stderr.String())
+		return "", errors.New(stderr.String() + err.Error())
 	}
 	return stdout.String(), nil
 
@@ -76,9 +91,11 @@ func CreateLV(
 ) (*Lv, error) {
 	_, err := CallCmd(
 		"lvcreate",
-		fmt.Sprintf("-V%dB", size),
-		"-T", fmt.Sprintf("%s/%s", vg, pool),
+		"-v",
+		fmt.Sprintf("-L%dB", size),
+		// "-T", fmt.Sprintf("%s/%s", vg, pool),
 		"-n", volId,
+		vg,
 	)
 	if err != nil {
 		return nil, err
